@@ -1,0 +1,12 @@
+{
+  "_comment": "Custom fields de Riachuelo. { \"<custom_field_id>\": \"<clave_WS1>\" }. Claves WS1 en mapping.custom_values(). IDs vienen de diagnose_invgate.py.",
+  "1": "ram",
+  "2": "storage_total",
+  "3": "mac",
+  "4": "ipv4",
+  "5": "screen_size",
+  "6": "imei",
+  "7": "processor",
+  "30": "phone_number",
+  "31": "carrier"
+}

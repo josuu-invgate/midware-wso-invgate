@@ -1,0 +1,66 @@
+# =============================================================================
+#  .gitignore — Workspace ONE -> InvGate
+#  Objetivo principal: NUNCA subir credenciais ao git.
+#  (Os comentários devem ficar em LINHA PRÓPRIA: o git não suporta comentário
+#   no fim da linha de um padrão.)
+# =============================================================================
+
+# --- Credenciais / segredos (NÃO commitar) ---
+.env
+.env.*
+*.env
+# exceção: o template (só placeholders) SIM vai ao git
+!.env.example
+secrets.*
+credentials.*
+*.pem
+*.key
+*.pfx
+*.p12
+*.pkcs12
+token.json
+*token*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Ambientes virtuais ---
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# --- Logs e saídas (podem conter dados de dispositivos) ---
+logs/
+*.log
+out/
+*.csv
+samples/
+
+# --- Editores / SO ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =============================================================================
+#  NÃO são credenciais (config por instância) — versioná se quiser.
+#  Se preferir mantê-los fora do git, descomente as 2 linhas abaixo:
+# custom_fields.json
+# location_map.json
+# =============================================================================

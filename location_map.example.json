@@ -1,0 +1,5 @@
+{
+  "_comment": "Copiá a location_map.json. Mapea el grupo organizacional de WS1 (por LocationGroupId numérico o por LocationGroupName) al location de InvGate (id numérico directo, o nombre a resolver). Obtené los IDs de InvGate con: python diagnose_invgate.py (sección LOCATIONS).",
+  "18555": "4",
+  "LOJAS SÃO PAULO": "São Paulo"
+}

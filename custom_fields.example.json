@@ -1,0 +1,19 @@
+{
+  "_comment": "Copiá este archivo a custom_fields.json y reemplazá los IDs (clave) por los reales de tu instancia. Obtené los IDs con: python diagnose_invgate.py (sección CUSTOM FIELDS). La clave es el custom_field_id; el valor es la clave de datos de WS1 (ver mapping.extract_identifiers).",
+  "101": "udid",
+  "102": "os",
+  "103": "os_build",
+  "104": "enrollment_status",
+  "105": "compliance_status",
+  "106": "compromised",
+  "107": "is_supervised",
+  "108": "last_seen",
+  "109": "last_enrolled_on",
+  "110": "security_patch_date",
+  "111": "wifi_ssid",
+  "112": "ownership_label",
+  "113": "managed_by",
+  "114": "device_reported_name",
+  "115": "location_group_name",
+  "116": "user_email"
+}
