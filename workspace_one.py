@@ -138,6 +138,75 @@ class WorkspaceOneClient:
     def fetch_mobile_devices(self) -> List[Dict[str, Any]]:
         return list(self.iter_mobile_devices())
 
+    # ------------------------------------------------------------------ detalle
+    def get_device_detail(self, device_id: Any) -> Dict[str, Any]:
+        """
+        Detalle de un device: GET /api/mdm/devices/{id}.
+        A diferencia de search, este modelo expone TotalStorageBytes /
+        AvailableStorageBytes (bytes) — el ÚNICO modo de obtener storage en Android.
+        Tolerante: devuelve {} si falla (no aborta el lote).
+        """
+        if not device_id:
+            return {}
+        url = f"{self.cfg.base_url}/api/mdm/devices/{device_id}"
+        try:
+            resp = self.session.get(url, timeout=self.timeout)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("device detail %s excepción: %s", device_id, exc)
+            return {}
+        if resp.status_code != 200:
+            logger.debug("device detail %s -> %s", device_id, resp.status_code)
+            return {}
+        try:
+            return resp.json()
+        except Exception:
+            return {}
+
+    def get_device_by_serial(self, serial: str) -> Dict[str, Any]:
+        """
+        Trae UN device por serial: GET /api/mdm/devices?searchby=Serialnumber&id=<serial>.
+        Devuelve el modelo de detalle (incluye TotalStorageBytes etc.) sin depender de
+        los filtros de móvil/enrolado. {} si no se encuentra.
+        """
+        if not serial:
+            return {}
+        url = f"{self.cfg.base_url}/api/mdm/devices"
+        try:
+            resp = self.session.get(
+                url, params={"searchby": "Serialnumber", "id": serial}, timeout=self.timeout
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_device_by_serial %s excepción: %s", serial, exc)
+            return {}
+        if resp.status_code != 200:
+            logger.debug("get_device_by_serial %s -> %s", serial, resp.status_code)
+            return {}
+        try:
+            data = resp.json()
+        except Exception:
+            return {}
+        # Normalizamos: puede venir como dict del device, lista, o {Devices:[...]}.
+        if isinstance(data, dict):
+            if isinstance(data.get("Devices"), list):
+                return data["Devices"][0] if data["Devices"] else {}
+            return data
+        if isinstance(data, list):
+            return data[0] if data else {}
+        return {}
+
+    def enrich_storage(self, device: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Agrega TotalStorageBytes/AvailableStorageBytes (y DataEncrypted) al device,
+        tomándolos del detalle por id. Funciona para Android e iOS.
+        """
+        raw = device.get("Id")
+        device_id = raw.get("Value") if isinstance(raw, dict) else raw
+        detail = self.get_device_detail(device_id)
+        for key in ("TotalStorageBytes", "AvailableStorageBytes", "DataEncrypted"):
+            if detail.get(key) is not None:
+                device[key] = detail[key]
+        return device
+
     # ------------------------------------------------------------------ filtros
     @staticmethod
     def _is_mobile(device: Dict[str, Any]) -> bool:

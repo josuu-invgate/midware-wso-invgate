@@ -116,8 +116,9 @@ python dump_sample.py         # volca em samples/ um device cru + o request ao I
 
 ## Importante: o que o `assets-lite` realmente guarda
 
-O POST de `assets-lite` SÓ persiste estes atributos: `name`, `serial`, `inventory_id`,
+O POST de `assets-lite` SÓ persiste estes atributos: `name`, `serial`,
 `asset_type`, `model`/`manufacturer`, `default_ip`, e os relationships `status`/`location`/`owner`.
+(`inventory_id` é suportado pela API, mas NÃO é enviado nesta integração — não é necessário.)
 
 Os campos técnicos (`ram`, `mac`, `imei`, `storage`, `os`…) são **read-only** pela API
 (quem os preenche é o agente do InvGate) e são **ignorados** se enviados no body →
@@ -129,7 +130,6 @@ por isso vão por **custom fields**.
 |------------------------|---------------|-----------|
 | `name`                 | `DeviceFriendlyName` → `DeviceReportedName` → `Model` | nunca fica vazio |
 | `serial`               | `SerialNumber` → `Imei` → `Uuid` | também é a **chave de dedup** |
-| `inventory_id`         | `AssetNumber` → `Udid` → `Uuid` | tag de inventário |
 | `asset_type`           | derivado de `Model`/`Platform` | `Phone` ou `Tablet` (case-insensitive) |
 | `model`                | `Model` | |
 | `manufacturer`         | derivado de `OEMInfo`/`Model` | Apple, Samsung, Honeywell, Google… |
@@ -154,9 +154,13 @@ com body `{custom_field_id, ci_id, ci_type:"phone", value}`.
 4. O `sync_devices.py` os carga UM POR UM depois de criar cada asset (usando o `ci_id` da
    resposta, respeitando `DRY_RUN` e tolerando falhas por campo). Valores vazios são omitidos.
 
-> Observação: `ipv4`, `screen_size` e `processor` **não vêm** no `devices/search` — esses
-> custom fields ficam vazios a partir desta fonte. `imei`, `storage_total`, `carrier` e
-> `phone_number` aparecem em iOS / aparelhos com SIM.
+> Observação sobre origem dos dados:
+> - `ram`, `mac`, `imei` (e em iOS `storage_*`) vêm do `devices/search`.
+> - **`storage_total` / `storage_available`**: em Android (e iOS) só vêm do **detalhe por device**
+>   (`GET /api/mdm/devices/{id}`, campos `TotalStorageBytes`/`AvailableStorageBytes`). Ative com
+>   **`WS1_FETCH_STORAGE=true`** (custa +1 request por device). Sem isso, ficam vazios em Android.
+> - `ipv4`, `screen_size`, `processor` **não vêm** por nenhum desses endpoints → ficam vazios.
+> - `carrier` / `phone_number` aparecem em aparelhos com SIM ativa.
 
 ---
 

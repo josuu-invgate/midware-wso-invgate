@@ -37,18 +37,35 @@ from workspace_one import WorkspaceOneClient
 SAMPLES = Path(__file__).resolve().parent / "samples"
 
 
+def _enrich(ws1: WorkspaceOneClient, dev: Dict[str, Any]) -> Dict[str, Any]:
+    """Agrega storage (detalle por id) si está habilitado y aún no vino."""
+    if WS1.fetch_storage and "TotalStorageBytes" not in dev:
+        dev = ws1.enrich_storage(dev)
+    return dev
+
+
 def _pick_device(serial: Optional[str], index: int) -> Optional[Dict[str, Any]]:
-    # Página chica para que sea rápido.
     WS1.page_size = min(max(WS1.page_size, 10), 100) if not serial else 100
     ws1 = WorkspaceOneClient(WS1, verify_tls=SYNC.verify_tls)
 
+    # Búsqueda DIRECTA por serial (no depende del filtro móvil/enrolado, trae detalle).
+    if serial:
+        dev = ws1.get_device_by_serial(serial)
+        if isinstance(dev, dict) and dev.get("SerialNumber"):
+            print(f"  Encontrado por búsqueda directa (id={dev.get('Id')}, platform={dev.get('Platform')}).")
+            return _enrich(ws1, dev)
+        print("  (búsqueda directa por serial no devolvió nada; recorro el search...)")
+
     i = 0
     for dev in ws1.iter_mobile_devices():
+        if not isinstance(dev, dict):
+            continue
         if serial:
             if mapping.dedup_serial(dev) == serial or dev.get("SerialNumber") == serial:
-                return dev
+                print(f"  Encontrado en el search (id={dev.get('Id')}, platform={dev.get('Platform')}).")
+                return _enrich(ws1, dev)
         elif i == index:
-            return dev
+            return _enrich(ws1, dev)
         i += 1
         # Cota de seguridad si buscamos por índice.
         if not serial and i > index:
@@ -63,11 +80,21 @@ def main() -> None:
     args = parser.parse_args()
 
     SAMPLES.mkdir(exist_ok=True)
-    print(f"Buscando dispositivo en Workspace ONE ({WS1.devices_search_url}) ...")
+    print(f"Carpeta de salida: {SAMPLES}")
+    print(f"WS1: {WS1.base_url}  | fetch_storage={WS1.fetch_storage}")
+    print(f"Buscando dispositivo (serial={args.serial or '-'}, index={args.index}) ...")
 
-    dev = _pick_device(args.serial, args.index)
-    if dev is None:
+    try:
+        dev = _pick_device(args.serial, args.index)
+    except Exception as exc:  # noqa: BLE001 - mostramos el error real en vez de fallar mudo
+        import traceback
+        print("❌ ERROR al buscar el dispositivo:")
+        traceback.print_exc()
+        sys.exit(1)
+
+    if not dev:
         print("❌ No se encontró ningún dispositivo con ese criterio.")
+        print("   Revisá: el serial es exacto? el device está en este tenant? credenciales WS1 ok?")
         sys.exit(1)
 
     # 1) Crudo de Workspace ONE

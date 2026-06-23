@@ -52,6 +52,9 @@ class WS1Config:
     page_size: int = _int("WS1_PAGE_SIZE", 500)
     # Solo importar dispositivos efectivamente enrolados.
     only_enrolled: bool = _bool("WS1_ONLY_ENROLLED", True)
+    # Traer almacenamiento (total/disponible) haciendo 1 llamada extra al detalle
+    # por device (GET /api/mdm/devices/{id}). Necesario para storage en Android.
+    fetch_storage: bool = _bool("WS1_FETCH_STORAGE", False)
 
     @property
     def devices_search_url(self) -> str:

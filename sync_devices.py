@@ -247,6 +247,9 @@ def run(limit: Optional[int] = None) -> int:
             break
         stats["total"] += 1
         try:
+            # Storage (incl. Android) viene solo del detalle por device.
+            if WS1.fetch_storage:
+                device = ws1.enrich_storage(device)
             _process_device(igam, device, stats, cf_map)
         except IGAMError as exc:
             stats["errors"] += 1

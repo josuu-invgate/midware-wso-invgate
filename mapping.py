@@ -100,6 +100,15 @@ def _to_mb(value: Any) -> Optional[int]:
     return int(round(mb)) if mb > 0 else None
 
 
+def _bytes_to_mb(value: Any) -> Optional[int]:
+    """Convierte bytes (como da el detalle del device: TotalStorageBytes) a MB."""
+    try:
+        b = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(round(b / (1024 * 1024))) if b > 0 else None
+
+
 def _memory_mb(device: Dict[str, Any], primary_key: str, info_key: str) -> Optional[int]:
     """
     Memoria en MB. WS1 da el total en dos formas:
@@ -213,7 +222,7 @@ def device_to_attributes(device: Dict[str, Any]) -> Dict[str, Any]:
         or f"WS1 Device {device_id(device)}"
     )
     serial = dedup_serial(device)
-    inventory_id = device.get("AssetNumber") or device.get("Udid") or device.get("Uuid") or None
+    # inventory_id: NÃO enviamos (não é necessário para estes ativos).
 
     attrs: Dict[str, Any] = {
         "name": name,
@@ -221,8 +230,6 @@ def device_to_attributes(device: Dict[str, Any]) -> Dict[str, Any]:
     }
     if serial:
         attrs["serial"] = serial
-    if inventory_id:
-        attrs["inventory_id"] = inventory_id
     if device.get("Model"):
         attrs["model"] = device["Model"]
     manufacturer = guess_manufacturer(device)
@@ -243,8 +250,14 @@ def custom_values(device: Dict[str, Any]) -> Dict[str, Any]:
     vals: Dict[str, Any] = dict(extract_identifiers(device))
     # Técnicos (los custom fields que creó el usuario: RAM, Storage, MAC, IPv4, etc.)
     vals["ram"] = _memory_mb(device, "TotalPhysicalMemory", "TotalPhysicalMemoryInfo")
-    vals["storage_total"] = _gb_to_mb(device.get("DeviceCapacity"))           # iOS
-    vals["storage_available"] = _gb_to_mb(device.get("AvailableDeviceCapacity"))
+    # Storage en MB. Preferimos los bytes del DETALLE del device (Android e iOS,
+    # requiere WS1_FETCH_STORAGE=true); si no, caemos a DeviceCapacity en GB (solo iOS).
+    vals["storage_total"] = (
+        _bytes_to_mb(device.get("TotalStorageBytes")) or _gb_to_mb(device.get("DeviceCapacity"))
+    )
+    vals["storage_available"] = (
+        _bytes_to_mb(device.get("AvailableStorageBytes")) or _gb_to_mb(device.get("AvailableDeviceCapacity"))
+    )
     vals["mac"] = normalize_mac(device.get("MacAddress"))
     vals["ipv4"] = extract_ip(device)                                        # no viene en search
     vals["imei"] = normalize_imei(device.get("Imei"))
