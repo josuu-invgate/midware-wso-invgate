@@ -10,9 +10,11 @@ NO escribe nada en InvGate ni necesita credenciales de InvGate: solo LEE de
 Workspace ONE y arma el request localmente.
 
 Uso:
-    python dump_sample.py                # el primer dispositivo móvil
-    python dump_sample.py --index 3      # el 4º dispositivo
+    python dump_sample.py                       # el primer dispositivo móvil
+    python dump_sample.py --index 3             # el 4º dispositivo
     python dump_sample.py --serial 19260B88A1   # uno puntual por serial
+    python dump_sample.py --smart-group 33914   # el primer device del smart group
+    python dump_sample.py --smart-group 33914 --index 2   # el 3º del grupo
 """
 from __future__ import annotations
 
@@ -77,11 +79,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Volcar muestra WS1 + request InvGate")
     parser.add_argument("--index", type=int, default=0, help="Índice del dispositivo (0 = primero)")
     parser.add_argument("--serial", default=None, help="Buscar un dispositivo por serial exacto")
+    parser.add_argument("--smart-group", default=None,
+                        help="Tomar el device de este Smart Group (ej. 33914). Ignora WS1_SMART_GROUP_ID del .env.")
     args = parser.parse_args()
+
+    # --smart-group sobreescribe el del .env (sin --serial, busca dentro del grupo).
+    if args.smart_group:
+        WS1.smart_group_id = args.smart_group
 
     SAMPLES.mkdir(exist_ok=True)
     print(f"Carpeta de salida: {SAMPLES}")
-    print(f"WS1: {WS1.base_url}  | fetch_storage={WS1.fetch_storage}")
+    print(f"WS1: {WS1.base_url}  | fetch_storage={WS1.fetch_storage}  | smart_group={WS1.smart_group_id or '-'}")
+
+    # Si hay smart group: volcamos su respuesta cruda para ver dónde está la lista de devices.
+    if WS1.smart_group_id:
+        ws1_sg = WorkspaceOneClient(WS1, verify_tls=SYNC.verify_tls)
+        sg_raw = ws1_sg.get_smartgroup_raw(WS1.smart_group_id)
+        (SAMPLES / "ws1_smartgroup.json").write_text(
+            json.dumps(sg_raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        keys = {k: type(v).__name__ for k, v in (sg_raw or {}).items()}
+        print(f"  smart group keys: {keys}")
+        ids = ws1_sg.get_smartgroup_device_ids(WS1.smart_group_id)
+        print(f"  smart group {WS1.smart_group_id}: {len(ids)} device ids detectados")
+
     print(f"Buscando dispositivo (serial={args.serial or '-'}, index={args.index}) ...")
 
     try:
@@ -100,6 +120,20 @@ def main() -> None:
     # 1) Crudo de Workspace ONE
     raw_path = SAMPLES / "ws1_device_raw.json"
     raw_path.write_text(json.dumps(dev, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 1b) DESCUBRIMIENTO de storage: volcamos el detalle COMPLETO (v2 y v1) por id,
+    #     para ver bajo qué nombre viene el almacenamiento en este tenant.
+    ws1 = WorkspaceOneClient(WS1, verify_tls=SYNC.verify_tls)
+    raw_id = dev.get("Id")
+    did = raw_id.get("Value") if isinstance(raw_id, dict) else raw_id
+    detail_files = []
+    if did:
+        for ver, fname in ((2, "ws1_device_detail_v2.json"), (1, "ws1_device_detail_v1.json")):
+            detail = ws1.get_device_detail(did, version=ver)
+            (SAMPLES / fname).write_text(json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8")
+            detail_files.append(fname)
+            keys = [k for k in (detail or {}) if "storage" in k.lower() or "capacity" in k.lower()]
+            print(f"  detalle v{ver}: {len(detail or {})} campos; storage/capacity -> {keys or 'ninguno'}")
 
     # 2) Mapeo -> body de InvGate (igual que en el sync real)
     attrs = mapping.device_to_attributes(dev)
@@ -146,6 +180,7 @@ def main() -> None:
 
     # Resumen en consola
     generated = ["ws1_device_raw.json", "invgate_request.json", "invgate_request.txt", "mapping_explained.txt"]
+    generated += detail_files
     if cf_map:
         generated.append("invgate_custom_fields.json")
     print("\n✅ Archivos generados en ./samples :")

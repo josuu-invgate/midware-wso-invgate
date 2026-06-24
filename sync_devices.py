@@ -203,9 +203,10 @@ def _process_device(igam: IGAMClient, device: Dict[str, Any], stats: Dict[str, i
 
 
 def run(limit: Optional[int] = None) -> int:
-    # Con límite, fijamos una página chica y razonable (independiente de
-    # WS1_PAGE_SIZE) para que la prueba sea rápida: entre 10 y 100.
-    if limit is not None and limit > 0:
+    # Con límite, fijamos una página chica y razonable para que la prueba sea rápida.
+    # PERO con filtro de smart group hay que escanear todo el tenant para encontrar
+    # a sus miembros, así que en ese caso NO achicamos la página.
+    if limit is not None and limit > 0 and not WS1.smart_group_id:
         WS1.page_size = min(max(limit, 10), 100)
 
     mode = "DRY-RUN (no escribe)" if SYNC.dry_run else "APPLY (escribe en InvGate)"

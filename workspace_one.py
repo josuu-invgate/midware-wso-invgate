@@ -115,6 +115,78 @@ class WorkspaceOneClient:
                 break
             page += 1
 
+    def get_smartgroup_raw(self, smart_group_id: Any) -> Dict[str, Any]:
+        """Respuesta cruda de GET /api/mdm/smartgroups/{id} (para inspección). {} si falla."""
+        url = f"{self.cfg.base_url}/api/mdm/smartgroups/{smart_group_id}"
+        try:
+            resp = self.session.get(url, timeout=self.timeout)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("smartgroup %s excepción: %s", smart_group_id, exc)
+            return {}
+        if resp.status_code != 200:
+            logger.warning("smartgroup %s -> %s: %s", smart_group_id, resp.status_code, resp.text[:200])
+            return {}
+        try:
+            data = resp.json()
+        except Exception:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _extract_device_id(item: Any) -> Optional[str]:
+        """Saca un device id de un item que puede ser int, str o dict ({Id}/{Value}/{DeviceId})."""
+        if isinstance(item, (int, str)):
+            return str(item)
+        if isinstance(item, dict):
+            did = item.get("Id", item.get("DeviceId", item.get("Value")))
+            if isinstance(did, dict):
+                did = did.get("Value")
+            return str(did) if did is not None else None
+        return None
+
+    def get_smartgroup_device_ids(self, smart_group_id: Any) -> set:
+        """
+        IDs de los devices que pertenecen a un Smart Group.
+        El shape varía por tenant: la lista puede estar en 'Devices'/'DeviceAdditions'
+        (lista de dicts/ids), o esas claves pueden ser un CONTEO (int). Buscamos en
+        las claves candidatas y, si no, en cualquier clave que sea lista de devices.
+        """
+        data = self.get_smartgroup_raw(smart_group_id)
+        if not data:
+            return set()
+
+        logger.debug("smartgroup %s keys: %s",
+                     smart_group_id, {k: type(v).__name__ for k, v in data.items()})
+
+        ids = set()
+        # 1) Claves conocidas que sean LISTAS.
+        for key in ("Devices", "DeviceAdditions", "DeviceIds", "device_additions"):
+            val = data.get(key)
+            if isinstance(val, list):
+                for item in val:
+                    did = self._extract_device_id(item)
+                    if did:
+                        ids.add(did)
+            elif isinstance(val, dict) and isinstance(val.get("Devices"), list):
+                for item in val["Devices"]:
+                    did = self._extract_device_id(item)
+                    if did:
+                        ids.add(did)
+
+        # 2) Si no encontramos nada, recorremos cualquier clave que sea lista de dicts con Id.
+        if not ids:
+            for key, val in data.items():
+                if isinstance(val, list) and val and isinstance(val[0], dict):
+                    for item in val:
+                        did = self._extract_device_id(item)
+                        if did:
+                            ids.add(did)
+            if ids:
+                logger.debug("smartgroup %s: ids hallados por barrido genérico", smart_group_id)
+
+        logger.debug("smartgroup %s: %d device ids", smart_group_id, len(ids))
+        return ids
+
     def iter_mobile_devices(self) -> Iterator[Dict[str, Any]]:
         """
         Itera los dispositivos móviles enrolados.
@@ -123,12 +195,26 @@ class WorkspaceOneClient:
         204 que da 'platform=Apple' y no recorre plataformas no-móviles como
         AppleOsX/WindowsPc) y filtra móvil EN EL CLIENTE.
 
-        Plataformas a conservar: las de WS1_PLATFORMS que sean móviles; si no hay
-        ninguna móvil configurada, se usan todas las móviles (Apple, Android).
+        Si WS1_SMART_GROUP_ID está seteado, además filtra a los devices que
+        pertenecen a ese smart group.
         """
         wanted = [p for p in self.cfg.platforms if p in MOBILE_PLATFORMS] or list(MOBILE_PLATFORMS)
         logger.debug("Filtrando a plataformas móviles: %s", wanted)
+
+        sg_ids = None
+        if self.cfg.smart_group_id:
+            sg_ids = self.get_smartgroup_device_ids(self.cfg.smart_group_id)
+            logger.debug("Smart group %s: %d devices a importar", self.cfg.smart_group_id, len(sg_ids))
+            if not sg_ids:
+                logger.warning("Smart group %s sin devices (o no se pudo leer): no se importará nada.",
+                               self.cfg.smart_group_id)
+
         for dev in self._iter_platform(None):  # None => sin parámetro platform
+            if sg_ids is not None:
+                raw = dev.get("Id")
+                did = raw.get("Value") if isinstance(raw, dict) else raw
+                if str(did) not in sg_ids:
+                    continue
             if (dev.get("Platform") or "") not in wanted:
                 continue
             if self.cfg.only_enrolled and not self._is_enrolled(dev):
@@ -139,23 +225,23 @@ class WorkspaceOneClient:
         return list(self.iter_mobile_devices())
 
     # ------------------------------------------------------------------ detalle
-    def get_device_detail(self, device_id: Any) -> Dict[str, Any]:
+    def get_device_detail(self, device_id: Any, version: int = 2) -> Dict[str, Any]:
         """
         Detalle de un device: GET /api/mdm/devices/{id}.
-        A diferencia de search, este modelo expone TotalStorageBytes /
-        AvailableStorageBytes (bytes) — el ÚNICO modo de obtener storage en Android.
-        Tolerante: devuelve {} si falla (no aborta el lote).
+        Pedimos version=2 (la v1 no trae storage); este modelo es el que puede
+        exponer el almacenamiento. Tolerante: devuelve {} si falla.
         """
         if not device_id:
             return {}
         url = f"{self.cfg.base_url}/api/mdm/devices/{device_id}"
+        headers = {"Accept": f"application/json;version={version}"} if version else None
         try:
-            resp = self.session.get(url, timeout=self.timeout)
+            resp = self.session.get(url, headers=headers, timeout=self.timeout)
         except Exception as exc:  # noqa: BLE001
             logger.debug("device detail %s excepción: %s", device_id, exc)
             return {}
         if resp.status_code != 200:
-            logger.debug("device detail %s -> %s", device_id, resp.status_code)
+            logger.debug("device detail %s (v%s) -> %s", device_id, version, resp.status_code)
             return {}
         try:
             return resp.json()
@@ -196,15 +282,22 @@ class WorkspaceOneClient:
 
     def enrich_storage(self, device: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Agrega TotalStorageBytes/AvailableStorageBytes (y DataEncrypted) al device,
-        tomándolos del detalle por id. Funciona para Android e iOS.
+        Agrega los campos de almacenamiento al device, tomándolos del detalle por id.
+        Como el nombre del campo varía por tenant/versión, mergeamos:
+          - los nombres conocidos (TotalStorageBytes/AvailableStorageBytes/DataEncrypted)
+          - cualquier clave que contenga 'Storage' o 'Capacity' (descubrimiento).
         """
         raw = device.get("Id")
         device_id = raw.get("Value") if isinstance(raw, dict) else raw
         detail = self.get_device_detail(device_id)
-        for key in ("TotalStorageBytes", "AvailableStorageBytes", "DataEncrypted"):
-            if detail.get(key) is not None:
-                device[key] = detail[key]
+        if not isinstance(detail, dict):
+            return device
+        for key, value in detail.items():
+            kl = key.lower()
+            if key in ("TotalStorageBytes", "AvailableStorageBytes", "DataEncrypted") \
+                    or "storage" in kl or "capacity" in kl:
+                if value is not None and key not in device:
+                    device[key] = value
         return device
 
     # ------------------------------------------------------------------ filtros

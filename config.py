@@ -55,6 +55,9 @@ class WS1Config:
     # Traer almacenamiento (total/disponible) haciendo 1 llamada extra al detalle
     # por device (GET /api/mdm/devices/{id}). Necesario para storage en Android.
     fetch_storage: bool = _bool("WS1_FETCH_STORAGE", False)
+    # Si se setea, SOLO se importan los devices que pertenecen a este Smart Group
+    # (GET /api/mdm/smartgroups/{id}). Vacío = todos los móviles.
+    smart_group_id: Optional[str] = (os.getenv("WS1_SMART_GROUP_ID") or "").strip() or None
 
     @property
     def devices_search_url(self) -> str:
